@@ -155,7 +155,7 @@ class ProfessionalCourtInterface {
             this.showSmartRadialMenu(p.svgX, p.svgY, p.screenX, p.screenY);
             this.showSelectionPulse(p.svgX, p.svgY);
         });
-        document.addEventListener('click', e => { if (!court.contains(e.target)) this.hideRadialMenu(); });
+        document.addEventListener('click', e => { if (court && !court.contains(e.target)) this.hideRadialMenu(); });
         court.addEventListener('mousemove', e => {
             const p = this.getEventPoint(e);
             const zone = this.zoneDetector.detectZone(p.svgX, p.svgY);
@@ -395,7 +395,7 @@ class BasketballGameManagerPro {
         this.undoStack = [];
         this.maxUndoStackSize = 20;
         
-        // NEW: Instance of the court interface module
+        // The court interface module will be initialized later, when needed.
         this.courtInterface = null;
     }
     
@@ -409,11 +409,6 @@ class BasketballGameManagerPro {
 
     setupApplication() {
         try {
-            // Initialize the court interface module first
-            this.courtInterface = new ProfessionalCourtInterface('fiba', (actionData) => {
-                this.handleNewCourtAction(actionData);
-            });
-
             this.setupEventListeners();
             this.loadActiveGames();
             this.generateNewGameCode();
@@ -436,11 +431,9 @@ class BasketballGameManagerPro {
             this.startGameUpdates();
         } catch (error) {
             console.error('Error during application setup:', error);
-            alert('Error initializing application. Please refresh the page.');
+            this.showAlert('Error', 'Error initializing application. Please refresh the page.', 'error');
         }
     }
-    
-    // ... (rest of the BasketballGameManagerPro class methods)
     
     // --- EVENT LISTENERS SETUP (Main Application) ---
     setupEventListeners() {
@@ -467,14 +460,7 @@ class BasketballGameManagerPro {
         });
     }
 
-    // ... (All other setup... methods from the original app.js, unchanged)
-    
     // --- NEW BRIDGE FUNCTION ---
-    /**
-     * Handles actions emitted from the ProfessionalCourtInterface module.
-     * This is the primary integration point.
-     * @param {object} data - The action data from the court module.
-     */
     handleNewCourtAction(data) {
         const player = this.getSelectedPlayer('court');
         if (!player) {
@@ -522,17 +508,10 @@ class BasketballGameManagerPro {
         this.updateActionsCount();
         this.saveGame();
 
-        // Refresh the court with the new, complete list of actions
         this.courtInterface.updateActionDisplay(this.getAllActionsForTeam(this.selectedCourtTeam));
     }
 
-
     // --- MODIFIED/REFACTORED METHODS ---
-
-    /**
-     * Overhauled this method to remove direct court interaction logic.
-     * It now only sets up player selection listeners.
-     */
     setupEnhancedCourtEvents() {
         const courtPlayerSelect = document.getElementById('courtPlayerSelect');
         if (courtPlayerSelect) {
@@ -550,24 +529,17 @@ class BasketballGameManagerPro {
         }
     }
 
-    /**
-     * Modified to update the court view when the team selection changes.
-     */
     selectCourtTeam(team) {
         this.selectedCourtTeam = team;
         document.querySelectorAll('#courtHomeTab, #courtAwayTab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.team === team);
         });
         this.updateCourtPlayerDropdown();
-        // Update the court to show the newly selected team's actions
         if (this.courtInterface) {
             this.courtInterface.updateActionDisplay(this.getAllActionsForTeam(team));
         }
     }
 
-    /**
-     * Modified to update the court view after an action is undone.
-     */
     undoLastAction() {
         if (!this.isAdmin || this.undoStack.length === 0) return;
         
@@ -587,25 +559,20 @@ class BasketballGameManagerPro {
         this.updateActionsCount();
         this.saveGame();
         
-        // Refresh the court display
         this.courtInterface.updateActionDisplay(this.getAllActionsForTeam(this.selectedCourtTeam));
         
         this.showAlert('Action Undone', '', 'success');
     }
 
-    /**
-     * Modified to refresh the court display when loading a game.
-     */
     loadExistingActions() {
         if (!this.currentGame || !this.currentGame.shots) return;
-        this.courtInterface.updateActionDisplay(this.getAllActionsForTeam(this.selectedCourtTeam));
+        if (this.courtInterface) {
+            this.courtInterface.updateActionDisplay(this.getAllActionsForTeam(this.selectedCourtTeam));
+        }
         this.updateActionsCount();
     }
     
-    // ... (The rest of the original app.js methods, like createNewGame, joinGame, etc., remain largely the same)
-    
-    // --- HELPER METHODS (some modified) ---
-    
+    // --- HELPER METHODS ---
     getSelectedPlayer(type = 'quick') {
         const playerId = type === 'court' ? this.selectedCourtPlayer : this.selectedQuickPlayer;
         if (!playerId) return null;
@@ -613,7 +580,7 @@ class BasketballGameManagerPro {
     }
     
     updateActionsCount() {
-        const count = this.currentGame ? this.currentGame.shots.length : 0;
+        const count = this.currentGame && this.currentGame.shots ? this.currentGame.shots.length : 0;
         const countEl = document.getElementById('shotsCount');
         if (countEl) {
             countEl.textContent = `Actions: ${count}`;
@@ -624,12 +591,586 @@ class BasketballGameManagerPro {
         if (!this.currentGame || !this.currentGame.shots) return [];
         return this.currentGame.shots.filter(action => action.team === teamId);
     }
+    
+    // --- PAGE NAVIGATION (MODIFIED) ---
+    switchPage(pageName) {
+        console.log('Switching to page:', pageName);
+        document.querySelectorAll('.page').forEach(page => {
+            page.classList.remove('active');
+        });
+        
+        const targetPage = document.getElementById(`${pageName}Page`);
+        if (targetPage) {
+            targetPage.classList.add('active');
+        } else {
+            console.error('Page not found:', pageName);
+        }
+        
+        const url = new URL(window.location);
+        if (pageName === 'viewer' && this.currentGameCode) {
+            url.searchParams.set('code', this.currentGameCode);
+            url.searchParams.set('mode', 'viewer');
+        } else {
+            url.searchParams.delete('code');
+            url.searchParams.delete('mode');
+        }
+        window.history.replaceState({}, '', url);
+        
+        // **FIX**: Initialize court interface only when switching to the controller page
+        if (pageName === 'controller' && !this.courtInterface) {
+            this.courtInterface = new ProfessionalCourtInterface('fiba', (actionData) => {
+                this.handleNewCourtAction(actionData);
+            });
+        }
+        
+        if (pageName === 'controller') {
+            setTimeout(() => {
+                this.loadExistingActions();
+                this.updatePlayByPlayDisplay();
+                this.updateAnalytics();
+                this.updatePlayerSelects();
+            }, 100);
+        }
+    }
 
-    // --- PASTE ALL ORIGINAL BasketballGameManagerPro METHODS HERE ---
-    // (Excluding the ones we've explicitly modified or removed above)
-    // For brevity, I'll omit pasting them all again, but they would go here.
-    // This includes: setupHomePageEvents, setupConfigPageEvents, setupPlayerSetupEvents, etc.
-    // ... all the methods from the original file that were not touched ...
+    // --- ALL OTHER ORIGINAL METHODS FROM app.js GO HERE ---
+    // (For brevity, only the modified/new methods are shown in full detail.
+    // The following is a placeholder for the rest of the original code.)
+
+    setupFoulTimeoutControls() {
+        document.querySelectorAll('.stat-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const team = btn.dataset.team;
+                const stat = btn.dataset.stat;
+                const isIncrement = btn.classList.contains('stat-plus');
+                
+                this.adjustTeamStat(team, stat, isIncrement ? 1 : -1);
+            });
+        });
+    }
+    setupHelpModal() {
+        const helpModal = document.getElementById('shortcutsModal');
+        const closeBtn = document.getElementById('closeShortcutsBtn');
+        if (closeBtn) closeBtn.addEventListener('click', () => this.hideShortcutsModal());
+        if (helpModal) {
+            const backdrop = helpModal.querySelector('.modal-backdrop');
+            const modalClose = helpModal.querySelector('.modal-close');
+            if (backdrop) backdrop.addEventListener('click', () => this.hideShortcutsModal());
+            if (modalClose) modalClose.addEventListener('click', () => this.hideShortcutsModal());
+        }
+    }
+    adjustTeamStat(team, stat, adjustment) {
+        if (!this.isAdmin || !this.currentGame) return;
+        const currentValue = this.currentGame.gameState[stat][team];
+        const newValue = Math.max(0, currentValue + adjustment);
+        if (typeof Swal !== 'undefined') {
+            if (stat === 'fouls' && newValue > this.currentGame.settings.foulLimit && adjustment > 0) {
+                Swal.fire({
+                    title: 'Foul Limit Exceeded!',
+                    text: `${this.currentGame.teams[team].name} has reached the foul limit (${this.currentGame.settings.foulLimit}).`,
+                    icon: 'warning',
+                    confirmButtonText: 'Add Anyway',
+                    showCancelButton: true,
+                    cancelButtonText: 'Cancel'
+                }).then((result) => {
+                    if (result.isConfirmed) this.applyStatAdjustment(team, stat, newValue);
+                });
+                return;
+            }
+            if (stat === 'timeouts' && newValue < 0) {
+                Swal.fire({ title: 'No Timeouts Remaining', text: `${this.currentGame.teams[team].name} has no timeouts left.`, icon: 'error', confirmButtonText: 'OK' });
+                return;
+            }
+        }
+        this.applyStatAdjustment(team, stat, newValue);
+    }
+    applyStatAdjustment(team, stat, newValue) {
+        const oldValue = this.currentGame.gameState[stat][team];
+        const action = {
+            id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            type: 'teamStatAdjustment', team, stat, oldValue, newValue, timestamp: Date.now()
+        };
+        this.addToUndoStack(action);
+        this.currentGame.gameState[stat][team] = newValue;
+        const statName = stat === 'fouls' ? 'foul' : 'timeout';
+        const verb = newValue > oldValue ? 'added' : 'removed';
+        this.addPlayByPlayEvent(`${this.currentGame.teams[team].name} ${statName} ${verb} (${newValue})`);
+        this.updateAllDisplays();
+        this.saveGame();
+    }
+    setupTeamTabEvents() {
+        document.querySelectorAll('#quickHomeTab, #quickAwayTab').forEach(tab => tab.addEventListener('click', (e) => { e.preventDefault(); this.selectQuickTeam(e.target.dataset.team); }));
+        document.querySelectorAll('#courtHomeTab, #courtAwayTab').forEach(tab => tab.addEventListener('click', (e) => { e.preventDefault(); this.selectCourtTeam(e.target.dataset.team); }));
+    }
+    setupExportEvents() {
+        const exportBtn = document.getElementById('exportBtn');
+        if (exportBtn) exportBtn.addEventListener('click', (e) => { e.preventDefault(); this.showExportModal(); });
+        const modal = document.getElementById('exportModal');
+        if (modal) {
+            const closeBtn = modal.querySelector('.modal-close');
+            const cancelBtn = document.getElementById('cancelExportBtn');
+            const backdrop = modal.querySelector('.modal-backdrop');
+            if (closeBtn) closeBtn.addEventListener('click', () => this.hideExportModal());
+            if (cancelBtn) cancelBtn.addEventListener('click', () => this.hideExportModal());
+            if (backdrop) backdrop.addEventListener('click', () => this.hideExportModal());
+            modal.querySelectorAll('.export-option').forEach(option => option.addEventListener('click', (e) => this.selectExportOption(e.currentTarget)));
+            const confirmBtn = document.getElementById('confirmExportBtn');
+            if (confirmBtn) confirmBtn.addEventListener('click', () => this.confirmExport());
+        }
+    }
+    selectQuickTeam(team) {
+        this.selectedQuickTeam = team;
+        document.querySelectorAll('#quickHomeTab, #quickAwayTab').forEach(tab => tab.classList.toggle('active', tab.dataset.team === team));
+        this.updateQuickPlayerDropdown();
+    }
+    updateQuickPlayerDropdown() {
+        const select = document.getElementById('quickPlayerSelect');
+        if (!select || !this.currentGame) return;
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Select Player</option>';
+        const team = this.selectedQuickTeam;
+        if (this.currentGame.teams[team] && this.currentGame.teams[team].players) {
+            this.currentGame.teams[team].players.sort((a, b) => a.number - b.number).forEach(player => {
+                const option = document.createElement('option');
+                option.value = player.id;
+                option.textContent = `#${player.number} ${player.name} (${player.position})`;
+                select.appendChild(option);
+            });
+        }
+        if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+            select.value = currentValue;
+            this.selectedQuickPlayer = currentValue;
+        } else {
+            this.selectedQuickPlayer = null;
+        }
+    }
+    updateCourtPlayerDropdown() {
+        const select = document.getElementById('courtPlayerSelect');
+        if (!select || !this.currentGame) return;
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Select Player for Court Actions</option>';
+        const team = this.selectedCourtTeam;
+        if (this.currentGame.teams[team] && this.currentGame.teams[team].players) {
+            this.currentGame.teams[team].players.sort((a, b) => a.number - b.number).forEach(player => {
+                const option = document.createElement('option');
+                option.value = player.id;
+                option.textContent = `#${player.number} ${player.name} (${player.position})`;
+                select.appendChild(option);
+            });
+        }
+        if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+            select.value = currentValue;
+            this.selectedCourtPlayer = currentValue;
+        } else {
+            this.selectedCourtPlayer = null;
+        }
+    }
+    setupHomePageEvents() {
+        const generateBtn = document.getElementById('generateCodeBtn');
+        if (generateBtn) generateBtn.addEventListener('click', (e) => { e.preventDefault(); this.generateNewGameCode(); });
+        const createBtn = document.getElementById('createGameBtn');
+        if (createBtn) createBtn.addEventListener('click', (e) => { e.preventDefault(); this.createNewGame(); });
+        const joinAdminBtn = document.getElementById('joinAdminBtn');
+        if (joinAdminBtn) joinAdminBtn.addEventListener('click', (e) => { e.preventDefault(); const code = document.getElementById('joinGameCode').value.trim().toUpperCase(); this.showPasswordField(); this.attemptAdminJoin(code); });
+        const joinViewerBtn = document.getElementById('joinViewerBtn');
+        if (joinViewerBtn) joinViewerBtn.addEventListener('click', (e) => { e.preventDefault(); const code = document.getElementById('joinGameCode').value.trim().toUpperCase(); this.joinGame(code, false); });
+        const joinCodeInput = document.getElementById('joinGameCode');
+        if (joinCodeInput) {
+            joinCodeInput.addEventListener('input', (e) => { if (e.target.value.trim().length === 6) this.hidePasswordField(); e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+            joinCodeInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') this.showPasswordField(); });
+        }
+        const joinPasswordInput = document.getElementById('joinPassword');
+        if (joinPasswordInput) joinPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { const code = document.getElementById('joinGameCode').value.trim().toUpperCase(); this.attemptAdminJoin(code); } });
+        const refreshBtn = document.getElementById('refreshGamesBtn');
+        if (refreshBtn) refreshBtn.addEventListener('click', (e) => { e.preventDefault(); this.loadActiveGames(); });
+    }
+    setupConfigPageEvents() {
+        const backBtn = document.getElementById('backToHomeBtn');
+        if (backBtn) backBtn.addEventListener('click', (e) => { e.preventDefault(); this.switchPage('home'); });
+        const continueBtn = document.getElementById('continueConfigBtn');
+        if (continueBtn) continueBtn.addEventListener('click', (e) => { e.preventDefault(); this.saveGameConfig(); });
+        document.querySelectorAll('.game-type-card').forEach(card => card.addEventListener('click', () => { document.querySelectorAll('.game-type-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected'); }));
+    }
+    setupPlayerSetupEvents() {
+        const backConfigBtn = document.getElementById('backToConfigBtn');
+        if (backConfigBtn) backConfigBtn.addEventListener('click', (e) => { e.preventDefault(); this.switchPage('config'); });
+        const startBtn = document.getElementById('startGameBtn');
+        if (startBtn) startBtn.addEventListener('click', (e) => { e.preventDefault(); this.startGame(); });
+        const addHomeBtn = document.getElementById('addHomePlayerBtn');
+        if (addHomeBtn) addHomeBtn.addEventListener('click', (e) => { e.preventDefault(); this.addPlayer('home'); });
+        const addAwayBtn = document.getElementById('addAwayPlayerBtn');
+        if (addAwayBtn) addAwayBtn.addEventListener('click', (e) => { e.preventDefault(); this.addPlayer('away'); });
+        ['homePlayerName', 'homePlayerNumber', 'awayPlayerName', 'awayPlayerNumber'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.addEventListener('keypress', (e) => { if (e.key === 'Enter') { e.preventDefault(); const team = id.includes('home') ? 'home' : 'away'; this.addPlayer(team); } });
+        });
+    }
+    setupControllerEvents() {
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        if (playPauseBtn) playPauseBtn.addEventListener('click', (e) => { e.preventDefault(); this.toggleGameClock(); });
+        const resetClockBtn = document.getElementById('resetClockBtn');
+        if (resetClockBtn) resetClockBtn.addEventListener('click', (e) => { e.preventDefault(); this.resetGameClock(); });
+        const resetShotClockBtn = document.getElementById('resetShotClockBtn');
+        if (resetShotClockBtn) resetShotClockBtn.addEventListener('click', (e) => { e.preventDefault(); this.resetShotClock(); });
+        const nextPeriodBtn = document.getElementById('nextPeriodBtn');
+        if (nextPeriodBtn) nextPeriodBtn.addEventListener('click', (e) => { e.preventDefault(); this.nextPeriod(); });
+        const endGameBtn = document.getElementById('endGameBtn');
+        if (endGameBtn) endGameBtn.addEventListener('click', (e) => { e.preventDefault(); this.confirmEndGame(); });
+        const viewGameBtn = document.getElementById('viewGameBtn');
+        if (viewGameBtn) viewGameBtn.addEventListener('click', (e) => { e.preventDefault(); this.openViewerWindow(); });
+        this.setupEnhancedQuickStatsEvents();
+    }
+    setupEnhancedQuickStatsEvents() {
+        document.querySelectorAll('.quick-stat-btn').forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); const stat = e.target.dataset.stat; const points = parseInt(e.target.dataset.points) || 0; this.recordQuickStat(stat, points); }));
+        const quickPlayerSelect = document.getElementById('quickPlayerSelect');
+        if (quickPlayerSelect) quickPlayerSelect.addEventListener('change', (e) => { this.selectedQuickPlayer = e.target.value; });
+    }
+    setupViewerEvents() {
+        const copyUrlBtn = document.getElementById('copyUrlBtn');
+        if (copyUrlBtn) copyUrlBtn.addEventListener('click', (e) => { e.preventDefault(); this.copyViewerUrl(); });
+        const fullscreenBtn = document.getElementById('viewerFullscreenBtn');
+        if (fullscreenBtn) fullscreenBtn.addEventListener('click', (e) => { e.preventDefault(); this.toggleFullscreen(); });
+        const backToControllerBtn = document.getElementById('backToControllerBtn');
+        if (backToControllerBtn) backToControllerBtn.addEventListener('click', (e) => { e.preventDefault(); this.switchPage('controller'); });
+    }
+    setupTabEvents() {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); this.switchTab(e.target.dataset.tab); }));
+    }
+    setupEnhancedKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') { if (e.key === 'Escape') e.target.blur(); return; }
+            if (e.key === ' ') { e.preventDefault(); if (this.isAdmin) this.toggleGameClock(); return; }
+            if (e.key === 'Enter') { e.preventDefault(); if (this.isAdmin) this.resetShotClock(); return; }
+            if (e.key === '?') { e.preventDefault(); this.showShortcutsModal(); return; }
+            if (e.ctrlKey && e.key === 'z') { e.preventDefault(); this.undoLastAction(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); if (this.courtInterface) this.courtInterface.hideRadialMenu(); this.hideShortcutsModal(); return; }
+            if (!this.isAdmin || !this.getSelectedPlayer()) return;
+            switch (e.key.toLowerCase()) {
+                case '1': e.preventDefault(); this.recordQuickStat('ft', 1); break;
+                case '2': e.preventDefault(); this.recordQuickStat('fg2', 2); break;
+                case '3': e.preventDefault(); this.recordQuickStat('fg3', 3); break;
+                case 'r': e.preventDefault(); this.recordQuickStat('rebound'); break;
+                case 'a': e.preventDefault(); this.recordQuickStat('assist'); break;
+                case 'b': e.preventDefault(); this.recordQuickStat('block'); break;
+                case 's': e.preventDefault(); this.recordQuickStat('steal'); break;
+                case 'f': e.preventDefault(); if (e.shiftKey) this.recordQuickStat('foul+'); else this.recordQuickStat('foul-'); break;
+                case 't': e.preventDefault(); if (e.shiftKey) this.recordQuickStat('timeout+'); else this.recordQuickStat('timeout-'); break;
+                case 'o': e.preventDefault(); this.recordQuickStat('turnover'); break;
+            }
+        });
+    }
+    showShortcutsModal() { const modal = document.getElementById('shortcutsModal'); if (modal) modal.classList.remove('hidden'); }
+    hideShortcutsModal() { const modal = document.getElementById('shortcutsModal'); if (modal) modal.classList.add('hidden'); }
+    showPasswordField() { const pg = document.getElementById('passwordGroup'); if (pg) { pg.style.display = 'block'; setTimeout(() => { const pi = document.getElementById('joinPassword'); if (pi) pi.focus(); }, 100); } }
+    hidePasswordField() { const pg = document.getElementById('passwordGroup'); if (pg) { pg.style.display = 'none'; const pi = document.getElementById('joinPassword'); if (pi) pi.value = ''; } }
+    attemptAdminJoin(code) {
+        const passwordInput = document.getElementById('joinPassword');
+        const password = passwordInput ? passwordInput.value : '';
+        if (!code || !password) { this.showAlert('Missing Information', 'Please enter both game code and password.', 'error'); return; }
+        try {
+            const gameData = localStorage.getItem(`game_${code}`);
+            if (!gameData) { this.showAlert('Game Not Found', 'Please check the code and try again.', 'error'); return; }
+            const game = JSON.parse(gameData);
+            if (game.adminPassword !== password) { this.showAlert('Incorrect Password', 'The admin password is incorrect.', 'error'); return; }
+            this.joinGame(code, true);
+        } catch (e) { console.error('Error during admin join:', e); this.showAlert('Error', 'Error joining game. Please try again.', 'error'); }
+    }
+    showAlert(title, text, icon) { if (typeof Swal !== 'undefined') Swal.fire({ title, text, icon }); else alert(`${title}: ${text}`); }
+    generateNewGameCode() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let code;
+        do { code = ''; for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length)); } while (this.gameCodeExists(code));
+        const codeDisplay = document.getElementById('newGameCode'); if (codeDisplay) codeDisplay.textContent = code; return code;
+    }
+    gameCodeExists(code) { try { return localStorage.getItem(`game_${code}`) !== null; } catch (e) { return false; } }
+    createNewGame() {
+        const codeDisplay = document.getElementById('newGameCode'); const gameNameInput = document.getElementById('newGameName'); const passwordInput = document.getElementById('newGamePassword');
+        const code = codeDisplay ? codeDisplay.textContent : this.generateNewGameCode(); const gameName = gameNameInput ? gameNameInput.value.trim() : ''; const adminPassword = passwordInput ? passwordInput.value.trim() : '';
+        if (!adminPassword) { this.showAlert('Password Required', 'Please enter an admin password to create the game.', 'warning'); return; }
+        try {
+            this.currentGameCode = code; this.isAdmin = true;
+            this.currentGame = { code, name: gameName || 'Basketball Game', adminPassword, type: 'professional', status: 'setup', created: new Date().toISOString(), settings: { gameFormat: 'quarters', periodDuration: 12, timeoutsPerTeam: 7, foulLimit: 7, shotClockEnabled: true, shotClockTime: 24 }, teams: { home: { name: 'Home Team', color: 'bg-1', players: [] }, away: { name: 'Away Team', color: 'bg-4', players: [] } }, gameState: { period: 1, gameTime: 720, shotClock: 24, scores: { home: 0, away: 0 }, fouls: { home: 0, away: 0 }, timeouts: { home: 7, away: 7 } }, stats: {}, shots: [], playByPlay: [], analytics: { totalShots: 0, madeShots: 0, threePointAttempts: 0, threePointMakes: 0, totalActions: 0 } };
+            this.saveGame(); this.updateGameCodeDisplays(); this.switchPage('config');
+        } catch (error) { console.error('Error creating game:', error); this.showAlert('Error', 'Error creating game. Please try again.', 'error'); }
+    }
+    joinGame(code, asAdmin = false) {
+        if (!code || code.length !== 6) { this.showAlert('Invalid Code', 'Please enter a valid 6-character game code.', 'error'); return; }
+        try {
+            const gameData = localStorage.getItem(`game_${code}`);
+            if (!gameData) { this.showAlert('Game Not Found', 'Please check the code and try again.', 'error'); return; }
+            this.currentGame = JSON.parse(gameData); this.currentGameCode = code; this.isAdmin = asAdmin;
+            if (!this.currentGame.shots) this.currentGame.shots = []; if (!this.currentGame.playByPlay) this.currentGame.playByPlay = []; if (!this.currentGame.analytics) this.currentGame.analytics = { totalShots: 0, madeShots: 0, threePointAttempts: 0, threePointMakes: 0, totalActions: 0 };
+            this.updateGameCodeDisplays(); this.clearError(); this.hidePasswordField();
+            if (asAdmin) { if (this.currentGame.status === 'setup') this.switchPage('config'); else this.switchPage('controller'); } else { this.switchPage('viewer'); }
+            this.updateAllDisplays(); this.loadExistingActions();
+        } catch (e) { console.error('Error joining game:', e); this.showAlert('Error', 'Error loading game. Please try again.', 'error'); }
+    }
+    saveGameConfig() {
+        if (!this.currentGame) return;
+        this.currentGame.name = document.getElementById('gameName').value || 'Basketball Game';
+        this.currentGame.teams.home.name = document.getElementById('homeTeamName').value || 'Home Team';
+        this.currentGame.teams.away.name = document.getElementById('awayTeamName').value || 'Away Team';
+        this.currentGame.teams.home.color = document.getElementById('homeTeamColor').value;
+        this.currentGame.teams.away.color = document.getElementById('awayTeamColor').value;
+        this.currentGame.settings.gameFormat = document.getElementById('gameFormat').value;
+        this.currentGame.settings.periodDuration = parseInt(document.getElementById('periodDuration').value);
+        this.currentGame.settings.timeoutsPerTeam = parseInt(document.getElementById('timeoutsPerTeam').value);
+        this.currentGame.settings.foulLimit = parseInt(document.getElementById('foulLimit').value);
+        this.currentGame.settings.shotClockEnabled = document.getElementById('shotClockEnabled').checked;
+        this.currentGame.type = document.querySelector('.game-type-card.selected').dataset.type;
+        this.currentGame.gameState.gameTime = this.currentGame.settings.periodDuration * 60;
+        this.currentGame.gameState.timeouts.home = this.currentGame.settings.timeoutsPerTeam;
+        this.currentGame.gameState.timeouts.away = this.currentGame.settings.timeoutsPerTeam;
+        if (this.currentGame.settings.shotClockEnabled) this.currentGame.gameState.shotClock = this.currentGame.settings.shotClockTime || 24;
+        this.saveGame();
+        if (this.currentGame.type === 'professional') this.switchPage('playerSetup'); else this.startGame();
+    }
+    addPlayer(team) {
+        const nameInput = document.getElementById(`${team}PlayerName`); const numberInput = document.getElementById(`${team}PlayerNumber`); const positionInput = document.getElementById(`${team}PlayerPosition`);
+        if (!nameInput || !numberInput) return;
+        const name = nameInput.value.trim(); const number = parseInt(numberInput.value); const position = positionInput ? positionInput.value : 'N/A';
+        if (!name) { this.showAlert('Name Required', 'Please enter a player name.', 'warning'); return; }
+        if (isNaN(number) || number < 0 || number > 99) { this.showAlert('Invalid Number', 'Please enter a valid jersey number (0-99).', 'warning'); return; }
+        if (this.currentGame.teams[team].players.find(p => p.number === number)) { this.showAlert('Number Taken', `Jersey number ${number} is already taken.`, 'warning'); return; }
+        const player = { name, number, position: position || 'N/A', id: `${team}_${number}` };
+        this.currentGame.teams[team].players.push(player);
+        this.currentGame.stats[player.id] = { points: 0, rebounds: 0, assists: 0, fouls: 0, steals: 0, blocks: 0, turnovers: 0, fieldGoals: { made: 0, attempted: 0 }, threePointers: { made: 0, attempted: 0 }, freeThrows: { made: 0, attempted: 0 } };
+        nameInput.value = ''; numberInput.value = ''; if (positionInput) positionInput.value = '';
+        this.updatePlayersList(team); this.updateStartGameButton(); this.saveGame();
+    }
+    removePlayer(team, playerId) {
+        if (typeof Swal !== 'undefined') { Swal.fire({ title: 'Remove Player?', text: 'Are you sure you want to remove this player?', icon: 'question', showCancelButton: true, confirmButtonText: 'Yes, remove', cancelButtonText: 'Cancel' }).then((result) => { if (result.isConfirmed) this.doRemovePlayer(team, playerId); }); }
+        else { if (confirm('Are you sure you want to remove this player?')) this.doRemovePlayer(team, playerId); }
+    }
+    doRemovePlayer(team, playerId) {
+        this.currentGame.teams[team].players = this.currentGame.teams[team].players.filter(p => p.id !== playerId); delete this.currentGame.stats[playerId];
+        this.updatePlayersList(team); this.updateStartGameButton(); this.saveGame();
+    }
+    updatePlayersList(team) {
+        const list = document.getElementById(`${team}PlayersList`); if (!list) return; list.innerHTML = '';
+        this.currentGame.teams[team].players.forEach(player => {
+            const div = document.createElement('div'); div.className = 'player-item';
+            div.innerHTML = `<div class="player-info"><span class="player-number-badge">${player.number}</span><div><div class="player-name">${player.name}</div><div class="player-position">${player.position}</div></div></div><button class="btn btn--sm btn--outline" onclick="window.appInstance.removePlayer('${team}', '${player.id}')">Remove</button>`;
+            list.appendChild(div);
+        });
+        const status = document.getElementById(`${team}TeamStatus`); const count = this.currentGame.teams[team].players.length;
+        if (status) { if (count === 0) { status.textContent = 'No players added'; status.className = 'team-status'; } else { status.textContent = `${count} player${count > 1 ? 's' : ''} added`; status.className = 'team-status ready'; } }
+    }
+    updateStartGameButton() {
+        const button = document.getElementById('startGameBtn'); if (!button || !this.currentGame) return;
+        const homeCount = this.currentGame.teams.home.players.length; const awayCount = this.currentGame.teams.away.players.length;
+        if (homeCount > 0 && awayCount > 0) { button.disabled = false; button.textContent = 'Start Game'; } else { button.disabled = true; button.textContent = 'Need players for both teams'; }
+    }
+    startGame() {
+        if (!this.currentGame) return;
+        this.currentGame.status = 'ready'; this.addPlayByPlayEvent('Game started'); this.saveGame(); this.switchPage('controller'); this.updateAllDisplays(); this.updatePlayerSelects();
+        this.showAlert('Game Started!', 'Players and teams are ready. Use Space to start the clock.', 'success');
+    }
+    toggleGameClock() { if (!this.currentGame || !this.isAdmin) return; if (this.currentGame.status === 'live') this.pauseGame(); else this.resumeGame(); }
+    resumeGame() {
+        this.currentGame.status = 'live'; this.addPlayByPlayEvent(`Game resumed - ${this.getPeriodName()}`);
+        this.clockInterval = setInterval(() => { if (this.currentGame.gameState.gameTime > 0) { this.currentGame.gameState.gameTime--; this.updateClockDisplays(); if (this.currentGame.gameState.gameTime === 0) this.handlePeriodEnd(); } }, 1000);
+        if (this.currentGame.settings.shotClockEnabled) {
+            this.shotClockInterval = setInterval(() => {
+                if (this.currentGame.gameState.shotClock > 0) {
+                    this.currentGame.gameState.shotClock--; this.updateClockDisplays();
+                    [document.getElementById('shotClockDisplay'), document.getElementById('viewerShotClock')].forEach(el => { if (el) { el.classList.remove('warning', 'danger'); if (this.currentGame.gameState.shotClock <= 5) el.classList.add('danger'); else if (this.currentGame.gameState.shotClock <= 10) el.classList.add('warning'); } });
+                }
+            }, 1000);
+        }
+        this.updateAllDisplays(); this.saveGame();
+    }
+    pauseGame() { this.currentGame.status = 'paused'; this.addPlayByPlayEvent('Game paused'); this.clearIntervals(); this.updateAllDisplays(); this.saveGame(); }
+    clearIntervals() { if (this.clockInterval) { clearInterval(this.clockInterval); this.clockInterval = null; } if (this.shotClockInterval) { clearInterval(this.shotClockInterval); this.shotClockInterval = null; } }
+    resetGameClock() {
+        if (!this.isAdmin) return;
+        if (typeof Swal !== 'undefined') { Swal.fire({ title: 'Reset Game Clock?', text: 'This will reset the game clock to the full period time.', icon: 'question', showCancelButton: true, confirmButtonText: 'Yes, reset', cancelButtonText: 'Cancel' }).then((result) => { if (result.isConfirmed) this.doResetGameClock(); }); }
+        else { if (confirm('Reset game clock to full period time?')) this.doResetGameClock(); }
+    }
+    doResetGameClock() { this.currentGame.gameState.gameTime = this.currentGame.settings.periodDuration * 60; this.addPlayByPlayEvent('Game clock reset'); this.updateClockDisplays(); this.saveGame(); }
+    resetShotClock() { if (!this.isAdmin) return; this.currentGame.gameState.shotClock = this.currentGame.settings.shotClockTime || 24; this.updateClockDisplays(); this.saveGame(); }
+    nextPeriod() {
+        if (!this.isAdmin) return;
+        if (typeof Swal !== 'undefined') { Swal.fire({ title: 'End Current Period?', text: 'This will end the current period and move to the next.', icon: 'question', showCancelButton: true, confirmButtonText: 'Yes, next period', cancelButtonText: 'Cancel' }).then((result) => { if (result.isConfirmed) this.handlePeriodEnd(); }); }
+        else { if (confirm('End current period and move to next?')) this.handlePeriodEnd(); }
+    }
+    handlePeriodEnd() {
+        this.clearIntervals(); this.currentGame.status = 'paused';
+        const maxPeriods = this.currentGame.settings.gameFormat === 'quarters' ? 4 : 2;
+        if (this.currentGame.gameState.period < maxPeriods) { this.currentGame.gameState.period++; this.currentGame.gameState.gameTime = this.currentGame.settings.periodDuration * 60; this.addPlayByPlayEvent(`End of ${this.getPeriodName(this.currentGame.gameState.period - 1)}`); this.showAlert(`End of ${this.getPeriodName(this.currentGame.gameState.period - 1)}`, `Starting ${this.getPeriodName()}`, 'info'); }
+        else if (this.currentGame.gameState.scores.home === this.currentGame.gameState.scores.away) { this.currentGame.gameState.period++; this.currentGame.gameState.gameTime = 300; this.addPlayByPlayEvent('Overtime period started'); this.showAlert('Overtime!', 'Game is tied. Starting 5-minute overtime period.', 'warning'); }
+        else { this.endGame(); return; }
+        this.updateAllDisplays(); this.saveGame();
+    }
+    confirmEndGame() {
+        if (!this.isAdmin) return;
+        if (typeof Swal !== 'undefined') { Swal.fire({ title: 'End Game?', text: 'Are you sure you want to end the game? This cannot be undone.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, end game', cancelButtonText: 'Cancel', confirmButtonColor: '#d33' }).then((result) => { if (result.isConfirmed) this.endGame(); }); }
+        else { if (confirm('Are you sure you want to end the game? This cannot be undone.')) this.endGame(); }
+    }
+    endGame() {
+        this.clearIntervals(); this.currentGame.status = 'final';
+        const { home: homeScore, away: awayScore } = this.currentGame.gameState.scores;
+        const { home: homeName, away: awayName } = this.currentGame.teams;
+        let message = 'Game Over! ';
+        if (homeScore > awayScore) message += `${homeName.name} wins ${homeScore}-${awayScore}!`;
+        else if (awayScore > homeScore) message += `${awayName.name} wins ${awayScore}-${homeScore}!`;
+        else message += `Game ended in a tie ${homeScore}-${awayScore}!`;
+        this.addPlayByPlayEvent(message); this.updateAllDisplays(); this.saveGame(); this.showAlert('Game Over!', message, 'success');
+    }
+    handleShotAction(action, stats, team) {
+        const { result, shotType, points } = action;
+        if (shotType === '3PT' || shotType === 'logo') { stats.threePointers.attempted++; if (result === 'make') { stats.threePointers.made++; stats.points += points; this.addScore(team, points); } this.currentGame.analytics.threePointAttempts++; if (result === 'make') this.currentGame.analytics.threePointMakes++; }
+        else if (shotType === 'ft') { stats.freeThrows.attempted++; if (result === 'make') { stats.freeThrows.made++; stats.points += points; this.addScore(team, points); } }
+        else { stats.fieldGoals.attempted++; if (result === 'make') { stats.fieldGoals.made++; stats.points += points; this.addScore(team, points); } }
+        this.currentGame.analytics.totalShots++; if (result === 'make') this.currentGame.analytics.madeShots++;
+        if (result === 'make' && this.currentGame.settings.shotClockEnabled) this.resetShotClock();
+        this.addPlayByPlayEvent(`#${action.playerNumber} ${action.playerName} ${result}s ${shotType} (${action.gameClock})`);
+    }
+    handleStatAction(actionType, stats, player) {
+        switch (actionType) {
+            case 'rebound': stats.rebounds++; this.addPlayByPlayEvent(`#${player.number} ${player.name} rebound`); break;
+            case 'assist': stats.assists++; this.addPlayByPlayEvent(`#${player.number} ${player.name} assist`); break;
+            case 'block': stats.blocks++; this.addPlayByPlayEvent(`#${player.number} ${player.name} block`); break;
+        }
+    }
+    addScore(team, points) { this.currentGame.gameState.scores[team] += points; this.currentGame.analytics.totalActions++; this.updateScoreDisplays(); this.saveGame(); this.updateViewerDisplays(); }
+    recordQuickStat(statType, points = 0) {
+        if (!this.isAdmin) { this.showAlert('Admin Required', 'Admin access required to record stats.', 'error'); return; }
+        const selectedPlayer = this.getSelectedPlayer();
+        if (!selectedPlayer && !statType.includes('timeout')) { this.showAlert('Select Player', 'Please select a team and player first.', 'warning'); return; }
+        if (statType.includes('foul') || statType.includes('timeout')) { const team = this.selectedQuickTeam; const isIncrement = statType.includes('+'); const stat = statType.includes('foul') ? 'fouls' : 'timeouts'; this.adjustTeamStat(team, stat, isIncrement ? 1 : -1); return; }
+        const stats = this.currentGame.stats[selectedPlayer.id]; if (!stats) return;
+        const action = { id: Date.now() + '_' + Math.random().toString(36).substr(2, 9), type: 'quickStat', statType, playerId: selectedPlayer.id, playerName: selectedPlayer.name, playerNumber: selectedPlayer.number, team: this.getPlayerTeam(selectedPlayer.id), points, period: this.currentGame.gameState.period, gameClock: this.formatTime(this.currentGame.gameState.gameTime), timestamp: Date.now() };
+        this.addToUndoStack(action);
+        const team = this.getPlayerTeam(selectedPlayer.id);
+        switch (statType) {
+            case 'ft': stats.freeThrows.made++; stats.freeThrows.attempted++; stats.points += points; this.addScore(team, points); this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} makes free throw`); break;
+            case 'fg2': stats.fieldGoals.made++; stats.fieldGoals.attempted++; stats.points += points; this.addScore(team, points); this.currentGame.analytics.totalShots++; this.currentGame.analytics.madeShots++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} makes 2-pointer`); if (this.currentGame.settings.shotClockEnabled) this.resetShotClock(); break;
+            case 'fg3': stats.threePointers.made++; stats.threePointers.attempted++; stats.points += points; this.addScore(team, points); this.currentGame.analytics.totalShots++; this.currentGame.analytics.madeShots++; this.currentGame.analytics.threePointAttempts++; this.currentGame.analytics.threePointMakes++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} makes 3-pointer`); if (this.currentGame.settings.shotClockEnabled) this.resetShotClock(); break;
+            case 'rebound': stats.rebounds++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} rebound`); break;
+            case 'assist': stats.assists++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} assist`); break;
+            case 'block': stats.blocks++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} block`); break;
+            case 'steal': stats.steals++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} steal`); break;
+            case 'turnover': stats.turnovers++; this.addPlayByPlayEvent(`#${selectedPlayer.number} ${selectedPlayer.name} turnover`); break;
+        }
+        this.currentGame.analytics.totalActions++; this.updateAllDisplays(); this.updateAnalytics(); this.saveGame();
+    }
+    addToUndoStack(action) { this.undoStack.push({ action, gameStateBefore: JSON.parse(JSON.stringify(this.currentGame.gameState)), statsBefore: JSON.parse(JSON.stringify(this.currentGame.stats)), analyticsBefore: JSON.parse(JSON.stringify(this.currentGame.analytics)) }); if (this.undoStack.length > this.maxUndoStackSize) this.undoStack.shift(); }
+    updatePlayerSelects() { this.selectQuickTeam('home'); this.selectCourtTeam('home'); this.updateQuickPlayerDropdown(); this.updateCourtPlayerDropdown(); }
+    updateAnalytics() {
+        if (!this.currentGame) return;
+        const { analytics } = this.currentGame;
+        const shootingPct = analytics.totalShots > 0 ? Math.round((analytics.madeShots / analytics.totalShots) * 100) : 0;
+        const threePointPct = analytics.threePointAttempts > 0 ? Math.round((analytics.threePointMakes / analytics.threePointAttempts) * 100) : 0;
+        const elements = { 'teamShootingPct': `${shootingPct}%`, 'threePointPct': `${threePointPct}%`, 'totalShots': analytics.totalActions || analytics.totalShots };
+        Object.entries(elements).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.textContent = value; });
+    }
+    addPlayByPlayEvent(message) {
+        if (!this.currentGame) return;
+        const event = { message, time: this.formatTime(this.currentGame.gameState.gameTime), period: this.currentGame.gameState.period, timestamp: Date.now() };
+        this.currentGame.playByPlay.unshift(event);
+        if (this.currentGame.playByPlay.length > 50) this.currentGame.playByPlay = this.currentGame.playByPlay.slice(0, 50);
+        this.updatePlayByPlayDisplay();
+    }
+    updatePlayByPlayDisplay() {
+        const container = document.getElementById('playByPlay'); if (!container || !this.currentGame || !this.currentGame.playByPlay) return;
+        container.innerHTML = this.currentGame.playByPlay.map(event => `<div class="feed-item ${event.message.includes('makes') ? 'highlight' : ''}">${event.period}Q ${event.time} - ${event.message}</div>`).join('');
+    }
+    switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.toggle('active', content.id === `${tabName}Tab`));
+        if (tabName === 'feed') this.updatePlayByPlayDisplay(); else if (tabName === 'analytics') this.updateAnalytics();
+    }
+    updateAllDisplays() { this.updateClockDisplays(); this.updateScoreDisplays(); this.updateStatusDisplays(); this.updateTeamDisplays(); this.updateQuickStatsVisibility(); }
+    updateClockDisplays() {
+        if (!this.currentGame) return;
+        const gameTime = this.formatTime(this.currentGame.gameState.gameTime);
+        const shotClock = this.currentGame.gameState.shotClock;
+        ['gameClockDisplay', 'viewerGameClock'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = gameTime; });
+        ['shotClockDisplay', 'viewerShotClock'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = shotClock; });
+    }
+    updateScoreDisplays() {
+        if (!this.currentGame) return;
+        const { home: homeScore, away: awayScore } = this.currentGame.gameState.scores;
+        ['homeScore', 'viewerHomeScore'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = homeScore; });
+        ['awayScore', 'viewerAwayScore'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = awayScore; });
+        const updates = { 'homeFouls': this.currentGame.gameState.fouls.home, 'awayFouls': this.currentGame.gameState.fouls.away, 'homeTimeouts': this.currentGame.gameState.timeouts.home, 'awayTimeouts': this.currentGame.gameState.timeouts.away, 'viewerHomeFouls': this.currentGame.gameState.fouls.home, 'viewerAwayFouls': this.currentGame.gameState.fouls.away, 'viewerHomeTimeouts': this.currentGame.gameState.timeouts.home, 'viewerAwayTimeouts': this.currentGame.gameState.timeouts.away };
+        Object.entries(updates).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.textContent = value; });
+    }
+    updateStatusDisplays() {
+        if (!this.currentGame) return;
+        const status = this.currentGame.status.charAt(0).toUpperCase() + this.currentGame.status.slice(1);
+        const period = this.getPeriodName();
+        ['gameStatusBadge', 'viewerStatus'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = status; });
+        ['periodDisplay', 'viewerPeriod'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = period; });
+        const btn = document.getElementById('playPauseBtn'); if (btn) btn.textContent = this.currentGame.status === 'live' ? '⏸️ Pause' : '▶️ Start';
+    }
+    updateTeamDisplays() {
+        if (!this.currentGame) return;
+        const { home: homeTeam, away: awayTeam } = this.currentGame.teams;
+        ['homeTeamTitle', 'viewerHomeName'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = homeTeam.name; });
+        ['awayTeamTitle', 'viewerAwayName'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = awayTeam.name; });
+        const quickHomeTab = document.getElementById('quickHomeTab'); if (quickHomeTab) quickHomeTab.textContent = homeTeam.name.slice(0, 8);
+        const quickAwayTab = document.getElementById('quickAwayTab'); if (quickAwayTab) quickAwayTab.textContent = awayTeam.name.slice(0, 8);
+        const courtHomeTab = document.getElementById('courtHomeTab'); if (courtHomeTab) courtHomeTab.textContent = homeTeam.name.slice(0, 8);
+        const courtAwayTab = document.getElementById('courtAwayTab'); if (courtAwayTab) courtAwayTab.textContent = awayTeam.name.slice(0, 8);
+        const gameNameEl = document.getElementById('gameName'); if (gameNameEl && this.currentGame.name) gameNameEl.value = this.currentGame.name;
+        if (this.currentGame.type === 'professional') { this.updatePlayersList('home'); this.updatePlayersList('away'); this.updatePlayerSelects(); }
+    }
+    updateQuickStatsVisibility() { const el = document.getElementById('quickStatsSection'); if (el) el.style.display = this.currentGame && this.currentGame.type === 'professional' && this.isAdmin ? 'block' : 'none'; }
+    updateGameCodeDisplays() { if (!this.currentGameCode) return; ['currentGameCode', 'configGameCode', 'playerGameCode', 'controllerGameCode', 'viewerGameCode'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = this.currentGameCode; }); }
+    formatTime(seconds) { const minutes = Math.floor(seconds / 60); const secs = seconds % 60; return `${minutes}:${secs.toString().padStart(2, '0')}`; }
+    getPeriodName(period = null) {
+        if (!this.currentGame) return '1st Quarter';
+        const p = period || this.currentGame.gameState.period;
+        const format = this.currentGame.settings.gameFormat;
+        if (format === 'quarters') { const names = ['1st Quarter', '2nd Quarter', '3rd Quarter', '4th Quarter']; return names[p - 1] || `OT${p - 4}`; }
+        else { const names = ['1st Half', '2nd Half']; return names[p - 1] || `OT${p - 2}`; }
+    }
+    showError(message) { const el = document.getElementById('joinError'); if (el) { el.textContent = message; el.style.color = 'var(--color-error)'; } }
+    clearError() { const el = document.getElementById('joinError'); if (el) el.textContent = ''; }
+    saveGame() { if (!this.currentGame || !this.currentGameCode) return; try { this.currentGame.lastUpdated = new Date().toISOString(); localStorage.setItem(`game_${this.currentGameCode}`, JSON.stringify(this.currentGame)); } catch (e) { console.error('Error saving game:', e); } }
+    loadActiveGames() {
+        const gamesList = document.getElementById('activeGamesList'); if (!gamesList) return;
+        const games = [];
+        try { for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith('game_')) { const gameData = localStorage.getItem(key); if (gameData) games.push(JSON.parse(gameData)); } } } catch (e) { console.error('Error loading games:', e); }
+        if (games.length === 0) { gamesList.innerHTML = '<div class="no-games">No active games found</div>'; return; }
+        games.sort((a, b) => new Date(b.lastUpdated || b.created) - new Date(a.lastUpdated || a.created));
+        gamesList.innerHTML = games.map(game => `<div class="game-item"><div class="game-info"><h4>${game.name || 'Basketball Game'}</h4><div class="game-details">${game.teams.home.name} vs ${game.teams.away.name} • Status: ${game.status.charAt(0).toUpperCase() + game.status.slice(1)} • Type: ${game.type.charAt(0).toUpperCase() + game.type.slice(1)} • Actions: ${game.shots ? game.shots.length : 0}</div></div><div class="game-actions"><span class="game-code-badge">${game.code}</span></div></div>`).join('');
+    }
+    startGameUpdates() { this.gameUpdateInterval = setInterval(() => { if (this.currentGameCode && !this.isAdmin) this.refreshGameData(); }, 2000); }
+    refreshGameData() {
+        if (!this.currentGameCode) return;
+        try {
+            const gameData = localStorage.getItem(`game_${this.currentGameCode}`);
+            if (gameData) {
+                const updatedGame = JSON.parse(gameData);
+                if (updatedGame.lastUpdated !== this.currentGame?.lastUpdated) { this.currentGame = updatedGame; this.updateAllDisplays(); this.loadExistingActions(); this.updatePlayByPlayDisplay(); this.updateAnalytics(); }
+            }
+        } catch (e) { console.error('Error refreshing game data:', e); }
+    }
+    openViewerWindow() { if (!this.currentGameCode) return; const url = `${window.location.origin}${window.location.pathname}?code=${this.currentGameCode}&mode=viewer`; window.open(url, '_blank'); }
+    copyViewerUrl() {
+        if (!this.currentGameCode) return;
+        const url = `${window.location.origin}${window.location.pathname}?code=${this.currentGameCode}&mode=viewer`;
+        navigator.clipboard.writeText(url).then(() => { this.showAlert('URL Copied!', 'Viewer URL copied to clipboard.', 'success'); }).catch(() => { prompt('Copy this URL:', url); });
+    }
+    toggleFullscreen() {
+        const viewerPage = document.getElementById('viewerPage');
+        if (!document.fullscreenElement) { viewerPage.requestFullscreen().then(() => document.body.classList.add('fullscreen')).catch(err => console.log('Fullscreen not supported:', err)); }
+        else { document.exitFullscreen().then(() => document.body.classList.remove('fullscreen')); }
+    }
+    updateViewerDisplays() { this.updateScoreDisplays(); this.updateClockDisplays(); this.updateStatusDisplays(); }
+    getPlayerById(playerId) {
+        if (!this.currentGame) return null;
+        for (const team of ['home', 'away']) { const player = this.currentGame.teams[team].players.find(p => p.id === playerId); if (player) return player; }
+        return null;
+    }
+    getPlayerTeam(playerId) {
+        if (!this.currentGame) return null;
+        for (const team of ['home', 'away']) { const player = this.currentGame.teams[team].players.find(p => p.id === playerId); if (player) return team; }
+        return null;
+    }
 }
 
 
